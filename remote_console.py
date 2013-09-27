@@ -5,11 +5,68 @@ import threading
 import inspect
 import sys
 
+# The entire first half of this module is dedicated to swapping out sys.stdout,
+# sys.stderr, and sys.stdin with file-like objects that act as proxies for the
+# remote console connection tied to the current thread, all in order to get
+# print statements and such things to send their output to the correct console.
+# There has /got/ to be a better way to do this...
+
 _former_thread_class = threading.Thread
 _former_stdout = sys.stdout
 _former_stderr = sys.stderr
 _former_stdin = sys.stdin
 
+class _StreamTracker(threading.local):
+    stdout = _former_stdout
+    stderr = _former_stderr
+    stdin = _former_stdin
+
+_stream_tracker = _StreamTracker()
+
+
+def _make_wrapper(name):
+    def function(*args, **kwargs):
+        self, args = args[0], args[1:]
+        # self is our local _StreamWrapper instance; don't pass it into the
+        # underlying socket file-like object
+        return getattr(getattr(_stream_tracker, self._stream_type), name)(*args)
+    return function
+
+class _StreamWrapper(object):
+    def __init__(self, stream_type):
+        self._stream_type = stream_type
+    
+    # Unilaterally block attempts to close ourselves for now to prevent an
+    # attempt to close stdout from inadvertently closing stdin and stderr as
+    # they're all set to the file wrapper around the connection's socket. This
+    # might cause problems arising from our real stdout/err/in not ever being
+    # closed properly, so some changes might be needed here.
+    def close(self):
+        pass
+    
+    flush = _make_wrapper("flush")
+    fileno = _make_wrapper("fileno")
+    isatty = _make_wrapper("isatty")
+    next = _make_wrapper("next")
+    read = _make_wrapper("read")
+    readline = _make_wrapper("readline")
+    readlines = _make_wrapper("readlines")
+    xreadlines = _make_wrapper("xreadlines")
+    seek = _make_wrapper("seek")
+    tell = _make_wrapper("tell")
+    truncate = _make_wrapper("truncate")
+    write = _make_wrapper("write")
+    writelines = _make_wrapper("writelines")
+
+sys.stdout = _StreamWrapper("stdout")
+sys.stderr = _StreamWrapper("stderr")
+sys.stdin = _StreamWrapper("stdin")
+
+# ...and now that we're finally done with stream swapping, we can get onto the
+# fun stuff, the actual remote console bit.
+
+BANNER = ('Python %s on %s\nType "help", "copyright", "credits" or "license" '
+          'for more information.\n' % (sys.version, sys.platform))
 
 class RemoteConsole(_former_thread_class, code.InteractiveConsole):
     def __init__(self, connection, local_vars):
@@ -36,7 +93,10 @@ class RemoteConsole(_former_thread_class, code.InteractiveConsole):
             raise EOFError()
     
     def run(self):
-        self.interact()
+        _stream_tracker.stdout = self.connection
+        _stream_tracker.stderr = self.connection
+        _stream_tracker.stdin = self.connection
+        self.interact(BANNER)
 
 
 class RemoteConsoleServer(_former_thread_class):
