@@ -4,12 +4,17 @@ import socket
 import threading
 import inspect
 import sys
+import pydoc
 
 # The entire first half of this module is dedicated to swapping out sys.stdout,
 # sys.stderr, and sys.stdin with file-like objects that act as proxies for the
 # remote console connection tied to the current thread, all in order to get
 # print statements and such things to send their output to the correct console.
 # There has /got/ to be a better way to do this...
+# 
+# Having a custom stdout confuses pydoc (and hence the built-in help function)
+# into never using the platform's native pager, so we'll patch it up to still
+# use it when invoked from the main console.
 
 _former_thread_class = threading.Thread
 _former_stdout = sys.stdout
@@ -20,8 +25,19 @@ class _StreamTracker(threading.local):
     stdout = _former_stdout
     stderr = _former_stderr
     stdin = _former_stdin
+    # Note that this is being called before we've swapped out stdout. Also note
+    # that we wrap it with staticmethod to prevent it from being wrapped in a
+    # bound method by _StreamTracker. TODO: Figure out a less kludgy way to do
+    # this.
+    pager = staticmethod(pydoc.getpager())
 
 _stream_tracker = _StreamTracker()
+
+
+def _pager(text):
+    _stream_tracker.pager(text)
+
+pydoc.pager = _pager
 
 
 def _make_wrapper(name):
@@ -96,6 +112,9 @@ class RemoteConsole(_former_thread_class, code.InteractiveConsole):
         _stream_tracker.stdout = self.connection
         _stream_tracker.stderr = self.connection
         _stream_tracker.stdin = self.connection
+        # Note that this is being called after we've swapped out stdout, so
+        # it'll give us back a plain pager
+        _stream_tracker.pager = pydoc.getpager()
         self.interact(BANNER)
 
 
