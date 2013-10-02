@@ -82,7 +82,7 @@ sys.stdin = _StreamWrapper("stdin")
 # fun stuff, the actual remote console bit.
 
 BANNER = ('Python %s on %s\nType "help", "copyright", "credits" or "license" '
-          'for more information.\n' % (sys.version, sys.platform))
+          'for more information.' % (sys.version, sys.platform))
 
 class RemoteConsole(_former_thread_class, code.InteractiveConsole):
     def __init__(self, connection, local_vars):
@@ -103,7 +103,7 @@ class RemoteConsole(_former_thread_class, code.InteractiveConsole):
                 raise Exception("Remote end closed the connection")
             return text
         except BaseException as e:
-            print "Telnet console session disconnected: %s" % e
+            print >>_former_stdout, "Remote console session disconnected: %s" % e
             self.connection.close()
             self.connection = None
             raise EOFError()
@@ -115,7 +115,12 @@ class RemoteConsole(_former_thread_class, code.InteractiveConsole):
         # Note that this is being called after we've swapped out stdout, so
         # it'll give us back a plain pager
         _stream_tracker.pager = pydoc.getpager()
-        self.interact(BANNER)
+        try:
+            self.interact(BANNER)
+        except SystemExit:
+            print >>_former_stdout, "Remote console session disconnecting on a call to exit()"
+            self.connection.close()
+            self.connection = None
 
 
 class RemoteConsoleServer(_former_thread_class):
