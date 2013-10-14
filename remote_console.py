@@ -86,6 +86,12 @@ BANNER = ('Python %s on %s\nType "help", "copyright", "credits" or "license" '
 
 class RemoteConsole(_former_thread_class, code.InteractiveConsole):
     def __init__(self, connection, local_vars):
+        """
+        Creates a remote console connected to the specified file-like object
+        (typically the return value of a call to socket.makefile(), but any
+        file-like object will do), using the specified dict-like object as the
+        interpreter's locals dictionary.
+        """
         _former_thread_class.__init__(self)
         code.InteractiveConsole.__init__(self, local_vars)
         self.connection = connection
