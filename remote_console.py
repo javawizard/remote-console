@@ -5,6 +5,7 @@ import threading
 import inspect
 import sys
 import pydoc
+import traceback
 
 # The entire first half of this module is dedicated to swapping out sys.stdout,
 # sys.stderr, and sys.stdin with file-like objects that act as proxies for the
@@ -85,6 +86,8 @@ BANNER = ('Python %s on %s\nType "help", "copyright", "credits" or "license" '
           'for more information.' % (sys.version, sys.platform))
 
 class RemoteConsole(_former_thread_class, code.InteractiveConsole):
+    traceback_strip = 1
+    
     def __init__(self, connection, local_vars):
         """
         Creates a remote console connected to the specified file-like object
@@ -127,6 +130,24 @@ class RemoteConsole(_former_thread_class, code.InteractiveConsole):
             print >>_former_stdout, "Remote console session disconnecting on a call to exit()"
             self.connection.close()
             self.connection = None
+    
+    def showtraceback(self):
+        try:
+            type, value, tb = sys.exc_info()
+            sys.last_type = type
+            sys.last_value = value
+            sys.last_traceback = tb
+            tblist = traceback.extract_tb(tb)
+            print "strip %r" % self.traceback_strip
+            del tblist[:self.traceback_strip]
+            list = traceback.format_list(tblist)
+            if list:
+                list.insert(0, "Traceback (most recent call last):\n")
+            list[len(list):] = traceback.format_exception_only(type, value)
+        finally:
+            tblist = tb = None
+        map(self.write, list)
+
 
 
 class RemoteConsoleServer(_former_thread_class):
